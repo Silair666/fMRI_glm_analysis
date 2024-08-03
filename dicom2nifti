@@ -1,0 +1,54 @@
+import os
+import logging
+from nipype.interfaces.dcm2nii import Dcm2niix
+
+# ログの設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def convert_dicom_to_nifti(dicom_dir, output_dir):
+    for root, dirs, files in os.walk(dicom_dir):
+        if not files:
+            continue
+
+        # 出力ディレクトリを設定
+        relative_path = os.path.relpath(root, dicom_dir)
+        nifti_subdir = os.path.join(output_dir, relative_path)
+        try:
+            os.makedirs(nifti_subdir, exist_ok=True)
+            logger.info(f"Created directory: {nifti_subdir}")
+        except Exception as e:
+            logger.error(f"Failed to create directory {nifti_subdir}: {e}")
+            continue
+
+        # Dcm2niixのインスタンスを作成
+        converter = Dcm2niix()
+
+        # DICOMディレクトリと出力ディレクトリを指定
+        converter.inputs.source_dir = root
+        converter.inputs.output_dir = nifti_subdir
+        converter.inputs.bids_format = True  # BIDS準拠のJSONファイルを生成
+        converter.inputs.compress = 'y'  # 圧縮されたNIfTIファイルを生成
+
+        # 変換を実行
+        try:
+            logger.info(f"Converting {root} to {nifti_subdir}")
+            result = converter.run()
+            logger.info(f"Conversion result: {result}")
+            logger.info(f"Converted files: {result.outputs.converted_files}")
+            if hasattr(result.outputs, 'bids'):
+                logger.info(f"BIDS metadata: {result.outputs.bids}")
+        except Exception as e:
+            logger.error(f"Failed to convert {root}: {e}")
+
+if __name__ == "__main__":
+    dicom_directory = "/base/Project/dicom"
+    nifti_output_directory = "/base/Project/nifti_files"
+    try:
+        os.makedirs(nifti_output_directory, exist_ok=True)
+        logger.info(f"Created output directory: {nifti_output_directory}")
+    except Exception as e:
+        logger.error(f"Failed to create output directory {nifti_output_directory}: {e}")
+        raise
+
+    convert_dicom_to_nifti(dicom_directory, nifti_output_directory)

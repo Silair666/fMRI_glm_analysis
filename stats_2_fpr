@@ -1,0 +1,71 @@
+import os
+import pandas as pd
+import numpy as np
+import nibabel as nib
+from scipy.stats import norm
+from atlasreader import create_output
+from os.path import join
+from nilearn.glm.thresholding import threshold_stats_img
+
+# パラメータの設定
+base_dir = '/data/Project/glm_group'
+output_dir = '/data/Project/stats_group'
+contrast_ids = [
+    'Encoding_Animate > Encoding_Inanimate', 'Encoding_Animate > Retrieval_Animate',
+    'Encoding_Animate > Retrieval_Inanimate', 'Encoding_Inanimate > Retrieval_Animate',
+    'Encoding_Inanimate > Retrieval_Inanimate', 'Retrieval_Animate > Retrieval_Inanimate',
+    'Encoding > Retrieval', 'Animate > Inanimate'
+]
+
+# クラスター情報を抽出し、p値を追加する関数
+def add_p_values_to_clusters(cluster_info_path, peak_info_path):
+    cluster_info = pd.read_csv(cluster_info_path)
+    peak_info = pd.read_csv(peak_info_path)
+
+    # ピーク情報から各クラスターの最大z値を取得し、それに基づいてp値を計算
+    for _, row in peak_info.iterrows():
+        cluster_id = row['cluster_id']
+        peak_value = row['peak_value']
+        
+        # クラスターのp値を計算
+        p_value = norm.sf(abs(peak_value)) * 2  # 両側検定
+
+        # クラスター情報にp値を追加
+        cluster_info.loc[cluster_info['cluster_id'] == cluster_id, 'p_value'] = p_value
+
+    # p値を含むクラスター情報を保存
+    cluster_info.to_csv(cluster_info_path, index=False)
+
+# 結果を保存する関数
+def save_results(contrast_id, output_dir):
+    contrast_output_dir = os.path.join(output_dir, f'contrast_{contrast_id.replace(" ", "_")}')
+    if not os.path.exists(contrast_output_dir):
+        os.makedirs(contrast_output_dir)
+
+    cluster_info_path = join(contrast_output_dir, f'{contrast_id.replace(" ", "_")}_second_level_common_z_map_clusters.csv')
+    peak_info_path = join(contrast_output_dir, f'{contrast_id.replace(" ", "_")}_second_level_common_z_map_peaks.csv')
+    add_p_values_to_clusters(cluster_info_path, peak_info_path)
+
+# メイン処理
+def main():
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    for contrast_id in contrast_ids:
+        z_map_path = os.path.join(base_dir, f'{contrast_id.replace(" ", "_")}_second_level_common_z_map.nii.gz')
+        if os.path.exists(z_map_path):
+            try:
+                # FPRに基づく閾値を計算
+                z_map = nib.load(z_map_path)
+                _, threshold = threshold_stats_img(z_map, alpha=.001, height_control='fpr')
+
+                contrast_output_dir = join(output_dir, f'contrast_{contrast_id.replace(" ", "_")}')
+                create_output(z_map_path, cluster_extent=10, voxel_thresh=threshold, outdir=contrast_output_dir)
+                save_results(contrast_id, output_dir)
+            except Exception as e:
+                print(f'Error processing {contrast_id}: {e}')
+        else:
+            print(f'File not found: {z_map_path}')
+
+if __name__ == "__main__":
+    main()

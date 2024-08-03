@@ -1,0 +1,118 @@
+import os
+import shutil
+import json
+import pandas as pd
+
+# 元のディレクトリと新しいディレクトリのパス
+original_dir = '/base/Project/bids/ezBIDS'
+new_dir = '/base/Project/bids/finalise_bids'
+
+# 新しいディレクトリの作成
+if not os.path.exists(new_dir):
+    os.makedirs(new_dir)
+
+# 統合ファイルの初期化
+dataset_description_list = []
+participants_list = []
+participants_json_list = []
+readme_set = set()
+
+# 被験者ディレクトリを探索
+for subject_dir in os.listdir(original_dir):
+    subject_dir_path = os.path.join(original_dir, subject_dir)
+    if os.path.isdir(subject_dir_path) and not subject_dir.startswith('.'):
+        # dataset_description.jsonの収集
+        dataset_description_file = os.path.join(subject_dir_path, 'dataset_description.json')
+        if os.path.exists(dataset_description_file):
+            with open(dataset_description_file, 'r') as f:
+                dataset_description_list.append(json.load(f))
+                print(f"Collected dataset_description.json from {dataset_description_file}")
+
+        # participants.tsvの収集
+        participants_tsv_file = os.path.join(subject_dir_path, 'participants.tsv')
+        if os.path.exists(participants_tsv_file):
+            participants_list.append(pd.read_csv(participants_tsv_file, sep='\t'))
+            print(f"Collected participants.tsv from {participants_tsv_file}")
+
+        # participants.jsonの収集
+        participants_json_file = os.path.join(subject_dir_path, 'participants.json')
+        if os.path.exists(participants_json_file):
+            with open(participants_json_file, 'r') as f:
+                participants_json_list.append(json.load(f))
+                print(f"Collected participants.json from {participants_json_file}")
+
+        # READMEの収集
+        readme_file = os.path.join(subject_dir_path, 'README')
+        if os.path.exists(readme_file):
+            with open(readme_file, 'r') as f:
+                readme_content = f.read()
+                if readme_content not in readme_set:  # 重複チェック
+                    readme_set.add(readme_content)
+                    print(f"Collected README from {readme_file}")
+
+        # 有効なセッションディレクトリのチェック
+        valid_subject = False
+        for sub_dir in os.listdir(subject_dir_path):
+            if sub_dir.startswith('sub-'):
+                sub_dir_path = os.path.join(subject_dir_path, sub_dir)
+                for session in os.listdir(sub_dir_path):
+                    session_path = os.path.join(sub_dir_path, session)
+                    anat_path = os.path.join(session_path, 'anat')
+                    func_path = os.path.join(session_path, 'func')
+
+                    if os.path.exists(anat_path) and os.path.exists(func_path):
+                        valid_subject = True
+                        break
+                if valid_subject:
+                    break
+
+        if valid_subject:
+            # sub-<被験者ID>ディレクトリのみのコピー（excludedを除く）
+            for item in os.listdir(subject_dir_path):
+                if item.startswith('sub-'):
+                    s = os.path.join(subject_dir_path, item)
+                    d = os.path.join(new_dir, item)
+                    if os.path.isdir(s):
+                        # セッションディレクトリ内のexcludedを除外し、空にならないようにする
+                        for session in os.listdir(s):
+                            session_path = os.path.join(s, session)
+                            if os.path.isdir(session_path):
+                                # Excludedを除いたセッションの中身が空かどうかをチェック
+                                has_valid_data = False
+                                for root, dirs, files in os.walk(session_path):
+                                    dirs[:] = [d for d in dirs if d != 'excluded']
+                                    if files or dirs:
+                                        has_valid_data = True
+                                        break
+                                if has_valid_data:
+                                    shutil.copytree(session_path, os.path.join(d, session), ignore=shutil.ignore_patterns('excluded'))
+                                else:
+                                    print(f"Skipping empty session directory: {session_path}")
+                    else:
+                        shutil.copy2(s, d)
+
+# 統合データの保存
+# dataset_description.jsonの統合と保存
+if dataset_description_list:
+    combined_dataset_description = dataset_description_list[0]  # 例として最初のものを基にする
+    with open(os.path.join(new_dir, 'dataset_description.json'), 'w') as f:
+        json.dump(combined_dataset_description, f, indent=4)
+
+# participants.tsvの統合と保存
+if participants_list:
+    all_participants = pd.concat(participants_list, ignore_index=True)
+    all_participants.to_csv(os.path.join(new_dir, 'participants.tsv'), sep='\t', index=False)
+
+# participants.jsonの統合と保存
+if participants_json_list:
+    combined_participants_json = participants_json_list[0]  # 例として最初のものを基にする
+    with open(os.path.join(new_dir, 'participants.json'), 'w') as f:
+        json.dump(combined_participants_json, f, indent=4)
+
+# READMEの統合と保存
+if readme_set:
+    combined_readme = "\n\n".join(readme_set)
+    with open(os.path.join(new_dir, 'README'), 'w') as f:
+        f.write(combined_readme)
+
+print("新しいBIDSフォーマットのディレクトリが作成されました。")

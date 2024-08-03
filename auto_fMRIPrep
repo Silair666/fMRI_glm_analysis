@@ -1,0 +1,41 @@
+import os
+import subprocess
+
+# 入力データディレクトリ（BIDS形式）
+bids_dir = '/base/Project/bids/finalise_bids'
+# 出力ディレクトリ
+output_dir = '/base/Project/bids/fMRIPrep'
+# 作業ディレクトリ（中間ファイルの保存場所）
+work_dir = '/base/Project/bids/fMRIPrep/temp'
+# FreeSurferのライセンスファイルのパス
+fs_license_file = '/user/local/freesurfer_license.txt'
+
+# ディレクトリの存在とアクセス権を確認
+directories = [bids_dir, output_dir, work_dir]
+for directory in directories:
+    if not os.path.exists(directory):
+        print(f"Error: Directory {directory} does not exist.")
+    elif not os.access(directory, os.W_OK | os.R_OK):
+        print(f"Error: No read/write access to directory {directory}.")
+    else:
+        print(f"Directory {directory} is accessible.")
+
+# 被験者ディレクトリのリストを取得
+subject_dirs = [d for d in os.listdir(bids_dir) if os.path.isdir(os.path.join(bids_dir, d))]
+
+# 各被験者についてfMRIPrepを実行
+for subject_id in subject_dirs:
+    cmd = [
+        'fmriprep-docker', bids_dir, output_dir, 'participant',
+        '--participant-label', subject_id,
+        '--fs-license-file', fs_license_file,
+        '-w', work_dir
+    ]
+    
+    # コマンドを実行
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error processing subject {subject_id}. Output:")
+        print(result.stderr)
+    else:
+        print(f"Successfully processed subject {subject_id}")
